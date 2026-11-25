@@ -4,16 +4,18 @@ import "dotenv/config";
 import cors from "cors";
 import { verifyToken } from "./middlewares/verifyToken.js";
 import { verifyRole } from "./middlewares/verifyRole.js";
+import { MENU_STATUS } from "./constants/menu.js";
+import { validateMenuItem } from "./utils/validateMenuItem.js";
 
 const app = express();
 
 const client = new MongoClient(process.env.MONGODB_URI);
 
 app.use(
-    cors({
-        origin: process.env.CLIENT_URL,
-        credentials: true
-    })
+  cors({
+      origin: process.env.CLIENT_URL,
+      credentials: true
+  })
 );
 app.use(express.json());
 
@@ -29,50 +31,78 @@ const db = mongoClient.db("pizzahub");
 
 const userCollection = db.collection("user");
 
+const menuItemsCollection = db.collection("menuItems");
+
 const verifyAdmin = verifyRole(userCollection, "admin");
 
 const verifyVendor = verifyRole(userCollection, "vendor");
 
 const verifyCustomer = verifyRole(userCollection, "customer");
 
-app.get(
-  "/test-admin",
-  verifyToken,
-  verifyAdmin,
-  (req, res) => {
-    res.status(200).json({
-      success: true,
-      message: "Admin access granted.",
-      role: req.userRole,
-    });
-  }
-);
+app.get("/test-admin", verifyToken, verifyAdmin, (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "Admin access granted.",
+    role: req.userRole,
+  });
+});
 
-app.get(
-  "/test-vendor",
-  verifyToken,
-  verifyVendor,
-  (req, res) => {
-    res.status(200).json({
-      success: true,
-      message: "Vendor access granted.",
-      role: req.userRole,
-    });
-  }
-);
+app.get("/test-vendor", verifyToken, verifyVendor, (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "Vendor access granted.",
+    role: req.userRole,
+  });
+});
 
-app.get(
-  "/test-customer",
-  verifyToken,
-  verifyCustomer,
-  (req, res) => {
-    res.status(200).json({
+app.get("/test-customer", verifyToken, verifyCustomer, (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "Customer access granted.",
+    role: req.userRole,
+  });
+});
+
+// Create a new menu item
+app.post("/menu-items", verifyToken, verifyVendor, async (req, res) => {
+  try {
+    const validation = validateMenuItem(req.body);
+
+    if (!validation.isValid) {
+      return res.status(400).json({
+          success: false,
+          message: validation.message,
+      });
+    }
+
+    const menuItem = {
+      ...validation.data,
+      vendorId: req.user.sub,
+      status: MENU_STATUS.PENDING,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const result =
+      await menuItemsCollection.insertOne(menuItem);
+
+    return res.status(201).json({
       success: true,
-      message: "Customer access granted.",
-      role: req.userRole,
+      message: "Menu item submitted for approval.",
+      data: {
+          ...menuItem,
+          _id: result.insertedId,
+      },
+    });
+  } catch (error) {
+    console.error("Create menu item error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to create menu item.",
     });
   }
-);
+});
 
 app.get("/", (req, res) => {
   res.send("PizzaHub Server is running!");
