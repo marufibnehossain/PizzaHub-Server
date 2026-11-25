@@ -2,8 +2,7 @@ import express from "express";
 import { MongoClient } from "mongodb";
 import "dotenv/config";
 import cors from "cors";
-import { toNodeHandler } from "better-auth/node";
-import { auth } from "./auth.js";
+import { verifyToken } from "./middlewares/verifyToken.js";
 
 const app = express();
 
@@ -15,7 +14,6 @@ app.use(
         credentials: true
     })
 );
-app.all("/api/auth/*splat", toNodeHandler(auth));
 app.use(express.json());
 
 export async function connectToMongoDB() {
@@ -30,6 +28,14 @@ const db = mongoClient.db("pizzahub");
 
 app.get("/", (req, res) => {
   res.send("PizzaHub Server is running!");
+});
+
+app.get("/test-protected", verifyToken, (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "JWT verification successful!",
+    userId: req.user.sub,
+  });
 });
 
 const port = process.env.PORT || 5000;
