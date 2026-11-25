@@ -1,11 +1,13 @@
 import express from "express";
-import { MongoClient } from "mongodb";
+import { MongoClient, ObjectId } from "mongodb";
 import "dotenv/config";
 import cors from "cors";
 import { verifyToken } from "./middlewares/verifyToken.js";
 import { verifyRole } from "./middlewares/verifyRole.js";
 import { MENU_STATUS } from "./constants/menu.js";
 import { validateMenuItem } from "./utils/validateMenuItem.js";
+import { SUBSCRIPTION_PLANS, FREE_MENU_ITEM_LIMIT } from "./constants/subscription.js";
+import { getEffectiveSubscription } from "./utils/getEffectiveSubscription.js";
 
 const app = express();
 
@@ -63,28 +65,61 @@ app.get("/test-customer", verifyToken, verifyCustomer, (req, res) => {
   });
 });
 
-// Create a new menu item
 app.post("/menu-items", verifyToken, verifyVendor, async (req, res) => {
   try {
     const validation = validateMenuItem(req.body);
 
     if (!validation.isValid) {
-      return res.status(400).json({
+        return res.status(400).json({
           success: false,
           message: validation.message,
+        });
+    }
+
+    const vendorId = req.user.sub;
+
+    const vendor = await userCollection.findOne({
+      _id: ObjectId.isValid(vendorId) ? new ObjectId(vendorId) : vendorId,
+    });
+
+    if (!vendor || vendor.role !== "vendor" || vendor.isBlocked === true) {
+      return res.status(403).json({
+        success: false,
+        message: "Vendor access denied.",
       });
+    }
+
+    const effectivePlan = getEffectiveSubscription(vendor);
+
+    if (effectivePlan === SUBSCRIPTION_PLANS.FREE) {
+
+      const itemCount = await menuItemsCollection.countDocuments({
+        vendorId: vendorId,
+        status: {
+          $in: [
+              MENU_STATUS.PENDING,
+              MENU_STATUS.APPROVED,
+          ],
+        },
+      });
+      
+        if (itemCount >= FREE_MENU_ITEM_LIMIT) {
+          return res.status(403).json({
+            success: false,
+            message: "Free plan limit reached. Upgrade to Premium to add more menu items.",
+          });
+        }
     }
 
     const menuItem = {
       ...validation.data,
-      vendorId: req.user.sub,
+      vendorId: vendorId,
       status: MENU_STATUS.PENDING,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
-
-    const result =
-      await menuItemsCollection.insertOne(menuItem);
+      
+    const result = await menuItemsCollection.insertOne(menuItem);
 
     return res.status(201).json({
       success: true,
@@ -94,15 +129,17 @@ app.post("/menu-items", verifyToken, verifyVendor, async (req, res) => {
           _id: result.insertedId,
       },
     });
-  } catch (error) {
-    console.error("Create menu item error:", error);
 
-    return res.status(500).json({
-      success: false,
-      message: "Failed to create menu item.",
-    });
+  } catch (error) {
+        console.error("Create menu item error:", error);
+
+      return res.status(500).json({
+        success: false,
+        message: "Failed to create menu item.",
+      });
+    }
   }
-});
+);
 
 app.get("/", (req, res) => {
   res.send("PizzaHub Server is running!");
