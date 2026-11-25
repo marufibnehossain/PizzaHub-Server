@@ -141,6 +141,33 @@ app.post("/menu-items", verifyToken, verifyVendor, async (req, res) => {
   }
 );
 
+app.get("/menu-items/my-items", verifyToken, verifyVendor, async (req, res) => {
+  try {
+    const vendorId = req.user.sub;
+
+    const query = {
+      vendorId: vendorId,
+    };
+
+    const menuItems = await menuItemsCollection.find(query).sort({ createdAt: -1 }).toArray();
+
+    return res.status(200).json({
+      success: true,
+      message: "Menu items retrieved successfully.",
+      data: menuItems,
+    });
+
+  } catch (error) {
+    console.error("Get vendor menu items error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to retrieve menu items.",
+      data: [],
+    });
+  }
+});
+
 app.get("/", (req, res) => {
   res.send("PizzaHub Server is running!");
 });
