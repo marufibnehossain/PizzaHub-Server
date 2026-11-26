@@ -168,6 +168,193 @@ app.get("/menu-items/my-items", verifyToken, verifyVendor, async (req, res) => {
   }
 });
 
+// Update a vendor's menu item
+app.patch("/menu-items/:id", verifyToken, verifyVendor, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const vendorId = req.user.sub;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid menu item ID.",
+      });
+    }
+
+    const query = {
+      _id: new ObjectId(id),
+      vendorId: vendorId,
+    };
+
+    const existingItem = await menuItemsCollection.findOne(query);
+
+    if (!existingItem) {
+      return res.status(404).json({
+        success: false,
+        message: "Menu item not found.",
+      });
+    }
+
+    if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid request body.",
+      });
+    }
+
+    const allowedFields = [
+      "itemName",
+      "category",
+      "description",
+      "price",
+      "location",
+      "images",
+    ];
+
+    const submittedFields = Object.keys(req.body);
+
+    if (submittedFields.length === 0 || submittedFields.some((field) => !allowedFields.includes(field))) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide valid fields to update.",
+      });
+    }
+
+    const updatedData = {
+      ...existingItem,
+      ...req.body,
+    };
+
+    const validation = validateMenuItem(updatedData);
+
+    if (!validation.isValid) {
+      return res.status(400).json({
+        success: false,
+        message: validation.message,
+      });
+    }
+
+    const needsNewSlot = existingItem.status !== MENU_STATUS.PENDING && existingItem.status !== MENU_STATUS.APPROVED;
+
+    if (needsNewSlot) {
+      const vendor = await userCollection.findOne({
+        _id: ObjectId.isValid(vendorId) ? new ObjectId(vendorId) : vendorId,
+      });
+
+      if (!vendor || vendor.role !== "vendor" || vendor.isBlocked === true) {
+        return res.status(403).json({
+          success: false,
+          message: "Vendor access denied.",
+        });
+      }
+
+      const effectivePlan = getEffectiveSubscription(vendor);
+
+      if (effectivePlan === SUBSCRIPTION_PLANS.FREE) {
+        const itemCount = await menuItemsCollection.countDocuments({
+          vendorId: vendorId,
+          status: {
+            $in: [
+                MENU_STATUS.PENDING,
+                MENU_STATUS.APPROVED,
+            ],
+          },
+        });
+
+        if (itemCount >= FREE_MENU_ITEM_LIMIT) {
+          return res.status(403).json({
+            success: false,
+            message: "Free plan limit reached. Free up a slot or upgrade to Premium.",
+          });
+        }
+      }
+    }
+
+    const updatedFields = {
+      ...validation.data,
+      status: MENU_STATUS.PENDING,
+      updatedAt: new Date(),
+    };
+
+    const result = await menuItemsCollection.updateOne(
+      {
+        ...query,
+        status: existingItem.status,
+        updatedAt: existingItem.updatedAt,
+      },
+      {
+        $set: updatedFields,
+      }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(409).json({
+        success: false,
+        message: "Menu item changed. Please refresh and try again.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Menu item updated and submitted for approval.",
+      data: {
+        ...existingItem,
+        ...updatedFields,
+      },
+    });
+
+  } catch (error) {
+    console.error("Update menu item error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update menu item.",
+    });
+  }
+});
+
+// Delete a vendor's menu item
+app.delete("/menu-items/:id", verifyToken, verifyVendor, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const vendorId = req.user.sub;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid menu item ID.",
+      });
+    }
+
+    const query = {
+      _id: new ObjectId(id),
+      vendorId: vendorId,
+    };
+
+    const result = await menuItemsCollection.deleteOne(query);
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Menu item not found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Menu item deleted successfully.",
+    });
+
+  } catch (error) {
+      console.error("Delete menu item error:", error);
+
+      return res.status(500).json({
+        success: false,
+        message: "Failed to delete menu item.",
+    });
+  }
+});
+
 app.get("/", (req, res) => {
   res.send("PizzaHub Server is running!");
 });
