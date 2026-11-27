@@ -1,4 +1,4 @@
-import { MENU_CATEGORIES } from "../constants/menu.js";
+import { MENU_CATEGORIES, MAX_MENU_IMAGES } from "../constants/menu.js";
 
 export const validateMenuItem = (body) => {
     if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -49,6 +49,13 @@ export const validateMenuItem = (body) => {
         return {
             isValid: false,
             message: "At least one image is required.",
+        };
+    }
+
+    if (images.length > MAX_MENU_IMAGES) {
+        return {
+            isValid: false,
+            message: "A maximum of three images is allowed.",
         };
     }
 

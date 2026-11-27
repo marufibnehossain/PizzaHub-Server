@@ -13,3 +13,5 @@ export const MENU_STATUS = {
     REJECTED: "rejected",
     INACTIVE: "inactive",
 };
+
+export const MAX_MENU_IMAGES = 3;

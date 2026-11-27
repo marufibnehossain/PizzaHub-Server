@@ -355,6 +355,62 @@ app.delete("/menu-items/:id", verifyToken, verifyVendor, async (req, res) => {
   }
 });
 
+app.get("/vendors/me/subscription", verifyToken, verifyVendor, async (req, res) => {
+  try {
+    const vendorId = req.user.sub;
+
+    const vendor = await userCollection.findOne({
+      _id: ObjectId.isValid(vendorId)
+        ? new ObjectId(vendorId)
+        : vendorId,
+    });
+
+    if (!vendor || vendor.role !== "vendor" || vendor.isBlocked === true) {
+      return res.status(403).json({
+        success: false,
+        message: "Vendor access denied.",
+      });
+    }
+
+    const plan = getEffectiveSubscription(vendor);
+
+    const usedSlots = await menuItemsCollection.countDocuments({
+      vendorId: vendorId,
+      status: {
+        $in: [
+          MENU_STATUS.PENDING,
+          MENU_STATUS.APPROVED,
+        ],
+      },
+    });
+
+    const isPremium = plan === SUBSCRIPTION_PLANS.PREMIUM;
+
+    const maxItems = isPremium ? null : FREE_MENU_ITEM_LIMIT;
+
+    const remainingSlots = isPremium ? null : Math.max(0, FREE_MENU_ITEM_LIMIT - usedSlots);
+
+    return res.status(200).json({
+      success: true,
+      message: "Subscription retrieved successfully.",
+      data: {
+        plan,
+        usedSlots,
+        maxItems,
+        remainingSlots,
+        expiresAt: isPremium ? vendor.subscriptionExpiresAt : null,
+      },
+    });
+  } catch (error) {
+      console.error("Get vendor subscription error:", error);
+
+      return res.status(500).json({
+        success: false,
+        message: "Failed to retrieve subscription.",
+      });
+  }
+});
+
 app.get("/", (req, res) => {
   res.send("PizzaHub Server is running!");
 });
